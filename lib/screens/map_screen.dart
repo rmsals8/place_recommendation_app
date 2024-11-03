@@ -3,8 +3,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geocoding/geocoding.dart' as geocoding;
 import '../services/location_service.dart';
 import '../services/directions_service.dart';
-import '../widgets/address_search_dialog.dart'; // 추가
-import '../widgets/route_selection_bottom_sheet.dart'; // 추가
+import '../widgets/address_search_dialog.dart';
+import '../widgets/route_selection_bottom_sheet.dart';
 import 'dart:math';
 
 class MapScreen extends StatefulWidget {
@@ -27,7 +27,7 @@ class _MapScreenState extends State<MapScreen> {
 
   LatLng? _originLocation;
   LatLng? _destinationLocation;
-  bool _isSearchingOrigin = true; // 출발지/도착지 검색 상태 관리
+  bool _isSearchingOrigin = true;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +118,6 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _searchAddress(bool isOrigin) async {
     try {
-      // 주소 검색 다이얼로그 표시
       final address = await showDialog<String>(
         context: context,
         builder: (context) => AddressSearchDialog(
@@ -264,6 +263,7 @@ class _MapScreenState extends State<MapScreen> {
 
       await showModalBottomSheet(
         context: context,
+        isScrollControlled: true,
         builder: (context) => RouteSelectionBottomSheet(
           routes: routes,
           onRouteSelected: (route) {
@@ -278,8 +278,8 @@ class _MapScreenState extends State<MapScreen> {
                 ),
               );
             });
-            Navigator.pop(context);
           },
+          mapController: _mapController,
         ),
       );
     } catch (e) {
@@ -290,6 +290,7 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
   }
+
   @override
   void dispose() {
     _mapController?.dispose();

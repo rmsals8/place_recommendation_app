@@ -4,17 +4,19 @@ import 'dart:async';
 import 'dart:math' show pi, sin, cos, sqrt, atan2;
 import '../services/location_service.dart';
 import '../models/route_info.dart';
+import '../models/place.dart';  // Place 모델 import 추가
 
 class NavigationScreen extends StatefulWidget {
   final RouteInfo route;
   final LatLng origin;
   final LatLng destination;
-
+  final List<Place> recommendedPlaces;  // 추천 장소 리스트 추가
   const NavigationScreen({
     Key? key,
     required this.route,
     required this.origin,
     required this.destination,
+    this.recommendedPlaces = const [],  // 기본값 설정
   }) : super(key: key);
 
   @override
@@ -28,6 +30,9 @@ class _NavigationScreenState extends State<NavigationScreen> {
   Timer? _locationTimer;
   int _currentStep = 0;
   bool _isNavigating = false;
+  Set<Marker> _markers = {};  // 마커 세트 추가
+  bool _showPlaces = false;   // 장소 표시 여부
+
 
   @override
   void initState() {
