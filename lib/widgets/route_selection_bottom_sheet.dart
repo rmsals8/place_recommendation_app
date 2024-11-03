@@ -1,21 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../models/route_info.dart';
 import '../models/place.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../services/places_service.dart';
 import '../screens/navigation_screen.dart';
-import '../widgets/place_detail_dialog.dart';  // 추가
+import '../widgets/place_detail_dialog.dart';
 
 class RouteSelectionBottomSheet extends StatefulWidget {
   final List<RouteInfo> routes;
   final Function(RouteInfo) onRouteSelected;
   final GoogleMapController? mapController;
+  final Function(Set<Marker>)? onMarkersUpdate;
 
   const RouteSelectionBottomSheet({
     Key? key,
     required this.routes,
     required this.onRouteSelected,
     this.mapController,
+    this.onMarkersUpdate,
   }) : super(key: key);
 
   @override
@@ -24,15 +26,17 @@ class RouteSelectionBottomSheet extends StatefulWidget {
 
 class _RouteSelectionBottomSheetState extends State<RouteSelectionBottomSheet> with SingleTickerProviderStateMixin {
   final PlacesService _placesService = PlacesService();
-  List<Place> _recommendedPlaces = [];
+  List<Place> _startAreaPlaces = [];
+  List<Place> _endAreaPlaces = [];
   bool _isLoadingPlaces = false;
   RouteInfo? _selectedRoute;
   late TabController _tabController;
+  Set<Marker> _markers = {};
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this); // 3개의 탭으로 변경
     if (widget.routes.isNotEmpty) {
       _selectedRoute = widget.routes.first;
       _searchPlaces(_selectedRoute!);
@@ -45,16 +49,36 @@ class _RouteSelectionBottomSheetState extends State<RouteSelectionBottomSheet> w
     super.dispose();
   }
 
+  Marker _createPlaceMarker(Place place) {
+    return Marker(
+      markerId: MarkerId(place.id),
+      position: place.location,
+      infoWindow: InfoWindow(
+        title: place.name,
+        snippet: '${place.category} • ${(place.distance / 1000).toStringAsFixed(1)}km',
+      ),
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+    );
+  }
+
   Future<void> _searchPlaces(RouteInfo route) async {
     setState(() {
       _isLoadingPlaces = true;
+      _startAreaPlaces = [];
+      _endAreaPlaces = [];
     });
 
     try {
       final places = await _placesService.searchNearbyPlaces(route.points);
+
       setState(() {
-        _recommendedPlaces = places;
+        // 출발지와 도착지 근처의 장소 분리
+        _startAreaPlaces = places.where((p) => p.distance <= 1000).toList();
+        _endAreaPlaces = places.where((p) => p.distance > 1000).toList();
         _isLoadingPlaces = false;
+
+        _markers = places.map((place) => _createPlaceMarker(place)).toSet();
+        widget.onMarkersUpdate?.call(_markers);
       });
     } catch (e) {
       setState(() {
@@ -75,13 +99,19 @@ class _RouteSelectionBottomSheetState extends State<RouteSelectionBottomSheet> w
         16,
       ),
     );
+
+    setState(() {
+      _markers = {_createPlaceMarker(place)};
+      widget.onMarkersUpdate?.call(_markers);
+    });
+
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: DraggableScrollableSheet(
         initialChildSize: 0.6,
         minChildSize: 0.3,
@@ -109,7 +139,8 @@ class _RouteSelectionBottomSheetState extends State<RouteSelectionBottomSheet> w
                   unselectedLabelColor: Colors.grey,
                   tabs: const [
                     Tab(text: '추천 경로'),
-                    Tab(text: '추천 장소'),
+                    Tab(text: '출발지 주변'),
+                    Tab(text: '도착지 주변'),
                   ],
                 ),
                 Expanded(
@@ -117,7 +148,8 @@ class _RouteSelectionBottomSheetState extends State<RouteSelectionBottomSheet> w
                     controller: _tabController,
                     children: [
                       _buildRoutesTab(scrollController),
-                      _buildPlacesTab(scrollController),
+                      _buildStartAreaTab(scrollController),
+                      _buildEndAreaTab(scrollController),
                     ],
                   ),
                 ),
@@ -177,7 +209,7 @@ class _RouteSelectionBottomSheetState extends State<RouteSelectionBottomSheet> w
                             route: route,
                             origin: route.points.first,
                             destination: route.points.last,
-                            recommendedPlaces: _recommendedPlaces,
+                            recommendedPlaces: _startAreaPlaces + _endAreaPlaces,
                           ),
                         ),
                       );
@@ -194,100 +226,83 @@ class _RouteSelectionBottomSheetState extends State<RouteSelectionBottomSheet> w
     );
   }
 
-  Widget _buildPlacesTab(ScrollController scrollController) {
+  Widget _buildPlaceList(List<Place> places, ScrollController scrollController) {
     if (_isLoadingPlaces) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_recommendedPlaces.isEmpty) {
+    if (places.isEmpty) {
       return const Center(
-        child: Text('경로 주변에 추천할만한 장소가 없습니다.'),
+        child: Text('추천할만한 장소가 없습니다.'),
       );
-    }
-
-    Map<int, List<Place>> placeGroups = {};
-    for (var place in _recommendedPlaces) {
-      final groupIndex = (place.distance / 500).floor();
-      placeGroups.putIfAbsent(groupIndex, () => []).add(place);
     }
 
     return ListView.builder(
       controller: scrollController,
-      itemCount: placeGroups.length,
+      padding: const EdgeInsets.all(16),
+      itemCount: places.length,
       itemBuilder: (context, index) {
-        final groupDistance = index * 500;
-        final places = placeGroups[index] ?? [];
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                '출발지로부터 ${groupDistance}m ~ ${groupDistance + 500}m',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+        final place = places[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => PlaceDetailDialog(
+                  place: place,
+                  onShowOnMap: () => _moveToPlace(place),
                 ),
-              ),
+              );
+            },
+            leading: CircleAvatar(
+              backgroundColor: Colors.blue[100],
+              child: const Icon(Icons.place, color: Colors.blue),
             ),
-            ...places.map((place) => Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              child: Card(
-                child: ListTile(
-                  onTap: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => PlaceDetailDialog(
-                        place: place,
-                        onShowOnMap: () => _moveToPlace(place),
-                      ),
-                    );
-                  },
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.blue[100],
-                    child: const Icon(Icons.place, color: Colors.blue),
-                  ),
-                  title: Text(
-                    place.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        place.category,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        '거리: ${(place.distance / 1000).toStringAsFixed(1)}km',
-                      ),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (place.rating > 0) ...[
-                        const Icon(Icons.star, color: Colors.amber, size: 16),
-                        const SizedBox(width: 4),
-                        Text(
-                          place.rating.toStringAsFixed(1),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      const Icon(Icons.arrow_forward_ios, size: 16),
-                    ],
-                  ),
+            title: Text(
+              place.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  place.category,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            )).toList(),
-            const Divider(height: 32),
-          ],
+                Text(
+                  '거리: ${(place.distance / 1000).toStringAsFixed(1)}km',
+                ),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (place.rating > 0) ...[
+                  const Icon(Icons.star, color: Colors.amber, size: 16),
+                  const SizedBox(width: 4),
+                  Text(
+                    place.rating.toStringAsFixed(1),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                const Icon(Icons.arrow_forward_ios, size: 16),
+              ],
+            ),
+          ),
         );
       },
     );
+  }
+
+  Widget _buildStartAreaTab(ScrollController scrollController) {
+    return _buildPlaceList(_startAreaPlaces, scrollController);
+  }
+
+  Widget _buildEndAreaTab(ScrollController scrollController) {
+    return _buildPlaceList(_endAreaPlaces, scrollController);
   }
 }

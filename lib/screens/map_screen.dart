@@ -21,6 +21,7 @@ class _MapScreenState extends State<MapScreen> {
   GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
+  final Set<Marker> _placeMarkers = {}; // 장소 마커를 위한 별도의 세트 추가
 
   final TextEditingController _originController = TextEditingController();
   final TextEditingController _destinationController = TextEditingController();
@@ -28,6 +29,18 @@ class _MapScreenState extends State<MapScreen> {
   LatLng? _originLocation;
   LatLng? _destinationLocation;
   bool _isSearchingOrigin = true;
+
+  void _updatePlaceMarkers(Set<Marker> markers) {
+    setState(() {
+      _placeMarkers.clear();
+      _placeMarkers.addAll(markers);
+      _markers
+        ..removeWhere((marker) =>
+        marker.markerId != const MarkerId('origin') &&
+            marker.markerId != const MarkerId('destination'))
+        ..addAll(_placeMarkers);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,76 +55,76 @@ class _MapScreenState extends State<MapScreen> {
         ],
       ),
       body: Stack(
-        children: [
-          GoogleMap(
-            initialCameraPosition: const CameraPosition(
-              target: LatLng(37.5666103, 126.9783882), // 서울시청
-              zoom: 15,
-            ),
-            onMapCreated: (controller) => _mapController = controller,
-            markers: _markers,
-            polylines: _polylines,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: true,
-            mapToolbarEnabled: true,
-          ),
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: _originController,
-                      decoration: InputDecoration(
-                        labelText: '출발지',
-                        prefixIcon: const Icon(Icons.location_on),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.search),
-                          onPressed: () => _searchAddress(true),
-                        ),
-                      ),
-                      onTap: () => _searchAddress(true),
-                      readOnly: true,
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _destinationController,
-                      decoration: InputDecoration(
-                        labelText: '도착지',
-                        prefixIcon: const Icon(Icons.location_on),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.search),
-                          onPressed: () => _searchAddress(false),
-                        ),
-                      ),
-                      onTap: () => _searchAddress(false),
-                      readOnly: true,
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _originLocation != null && _destinationLocation != null
-                            ? _searchRoute
-                            : null,
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          child: Text('경로 검색'),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+          children: [
+      GoogleMap(
+      initialCameraPosition: const CameraPosition(
+      target: LatLng(37.5666103, 126.9783882), // 서울시청
+      zoom: 15,
+    ),
+    onMapCreated: (controller) => _mapController = controller,
+    markers: _markers,
+    polylines: _polylines,
+    myLocationEnabled: true,
+    myLocationButtonEnabled: false,
+    zoomControlsEnabled: true,
+    mapToolbarEnabled: true,
+    ),
+    Positioned(
+    top: 16,
+    left: 16,
+    right: 16,
+    child: Card(
+    child: Padding(
+    padding: const EdgeInsets.all(16),
+    child: Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+    TextField(
+    controller: _originController,
+    decoration: InputDecoration(
+    labelText: '출발지',
+    prefixIcon: const Icon(Icons.location_on),
+    suffixIcon: IconButton(
+    icon: const Icon(Icons.search),
+    onPressed: () => _searchAddress(true),
+    ),
+    ),
+    onTap: () => _searchAddress(true),
+    readOnly: true,
+    ),
+    const SizedBox(height: 8),
+    TextField(
+    controller: _destinationController,
+    decoration: InputDecoration(
+    labelText: '도착지',
+    prefixIcon: const Icon(Icons.location_on),
+    suffixIcon: IconButton(
+    icon: const Icon(Icons.search),
+    onPressed: () => _searchAddress(false),
+    ),
+    ),
+    onTap: () => _searchAddress(false),
+    readOnly: true,
+    ),
+    const SizedBox(height: 16),
+    SizedBox(
+    width: double.infinity,
+    child: ElevatedButton(
+    onPressed: _originLocation != null && _destinationLocation != null
+    ? _searchRoute
+        : null,
+    child: const Padding(
+    padding: EdgeInsets.symmetric(vertical: 12),
+    child: Text('경로 검색'),
+    ),
+    ),
+    ),
+    ],
+    ),
+    ),
+    ),
+    ),
+          ],
       ),
     );
   }
@@ -184,6 +197,8 @@ class _MapScreenState extends State<MapScreen> {
         _mapController?.animateCamera(CameraUpdate.newLatLng(latLng));
       }
     } catch (e) {
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('현재 위치를 가져오는데 실패했습니다: $e')),
       );
@@ -191,32 +206,51 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _updateMarkers() {
-    _markers.clear();
-    _polylines.clear();
+    setState(() {
+      _markers.clear();
+      _polylines.clear();
 
-    if (_originLocation != null) {
-      _markers.add(Marker(
-        markerId: const MarkerId('origin'),
-        position: _originLocation!,
-        infoWindow: InfoWindow(title: '출발지', snippet: _originController.text),
-      ));
-    }
+      // 출발지 마커
+      if (_originLocation != null) {
+        _markers.add(
+          Marker(
+            markerId: const MarkerId('origin'),
+            position: _originLocation!,
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+            infoWindow: InfoWindow(
+              title: '출발지',
+              snippet: _originController.text,
+            ),
+          ),
+        );
+      }
 
-    if (_destinationLocation != null) {
-      _markers.add(Marker(
-        markerId: const MarkerId('destination'),
-        position: _destinationLocation!,
-        infoWindow: InfoWindow(title: '도착지', snippet: _destinationController.text),
-      ));
-    }
+      // 도착지 마커
+      if (_destinationLocation != null) {
+        _markers.add(
+          Marker(
+            markerId: const MarkerId('destination'),
+            position: _destinationLocation!,
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            infoWindow: InfoWindow(
+              title: '도착지',
+              snippet: _destinationController.text,
+            ),
+          ),
+        );
+      }
 
-    if (_originLocation != null && _destinationLocation != null) {
-      _fitBounds();
-    } else if (_originLocation != null || _destinationLocation != null) {
-      _mapController?.animateCamera(
-        CameraUpdate.newLatLng(_originLocation ?? _destinationLocation!),
-      );
-    }
+      // 장소 마커들 추가
+      _markers.addAll(_placeMarkers);
+
+      if (_originLocation != null && _destinationLocation != null) {
+        _fitBounds();
+      } else if (_originLocation != null || _destinationLocation != null) {
+        _mapController?.animateCamera(
+          CameraUpdate.newLatLng(_originLocation ?? _destinationLocation!),
+        );
+      }
+    });
   }
 
   void _fitBounds() {
@@ -280,6 +314,7 @@ class _MapScreenState extends State<MapScreen> {
             });
           },
           mapController: _mapController,
+          onMarkersUpdate: _updatePlaceMarkers, // 마커 업데이트 콜백 추가
         ),
       );
     } catch (e) {
